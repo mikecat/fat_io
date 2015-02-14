@@ -324,9 +324,43 @@ int write_disk(const char *diskfile, const char *file, const unsigned char *file
 	return 0;
 }
 
-int delete_disk(const char *diskfile, const char *file, const unsigned char *filename_on_disk) {
+int delete_disk(const char *diskfile, const unsigned char *filename_on_disk) {
 	FILE* disk = open_disk(diskfile);
 	diskinfo_t diskinfo = get_disk_info(disk);
+	unsigned char rde_buffer[512];
+	unsigned char fat_buffer[512];
+	unsigned int fat_sector = 0xffffffff;
+	unsigned int rde_sector = diskinfo.rde_begin_sector - 1;
+	unsigned int current_cluster = 0;
+	unsigned int next_cluster = 0;
+	unsigned int i;
+	for (i = 0; i < diskinfo.BPB.root_entries; i++) {
+		if (i % 0x10 == 0) {
+			read_sector(disk, rde_buffer, ++rde_sector);
+		}
+		if (strncmp((const char*)&rde_buffer[0x20 * (i % 0x10)], (const char*)filename_on_disk, 11) == 0) {
+			current_cluster = read2bytes(&rde_buffer[0x20 * (i % 0x10) + 0x1A]);
+			rde_buffer[0x20 * (i % 0x10)] = 0xe5;
+			write_sector(disk, rde_buffer, rde_sector);
+			break;
+		}
+	}
+	if (current_cluster == 0) {
+		fputs("file not found\n", stderr);
+		fclose(disk);
+		return 1;
+	}
+	while (0x0002 <= current_cluster && current_cluster <= 0xfff6) {
+		set_fat_sector_by_cluster(disk, &diskinfo, fat_buffer, &fat_sector, current_cluster);
+		next_cluster = read2bytes(&fat_buffer[2 * (current_cluster % 0x100)]);
+		write2bytes(&fat_buffer[2 * (current_cluster % 0x100)], 0x0000);
+		current_cluster = next_cluster;
+	}
+	if (fat_sector != 0xffffffff) {
+		for (i = 0; i < diskinfo.BPB.number_of_fats; i++) {
+			write_sector(disk, fat_buffer, fat_sector + diskinfo.BPB.sectors_per_fat * i);
+		}
+	}
 	fclose(disk);
 	return 0;
 }
@@ -352,7 +386,7 @@ int main(int argc, char *argv[]) {
 	} else if (strcmp(argv[2], "write") == 0) {
 		return write_disk(argv[1], argv[3], filename_on_disk);
 	} else if (strcmp(argv[2], "delete") == 0) {
-		return delete_disk(argv[1], argv[3], filename_on_disk);
+		return delete_disk(argv[1], filename_on_disk);
 	} else {
 		fputs("unknown operation\n", stderr);
 		return 1;
