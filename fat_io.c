@@ -333,6 +333,7 @@ int delete_disk(const char *diskfile, const unsigned char *filename_on_disk) {
 	unsigned int rde_sector = diskinfo.rde_begin_sector - 1;
 	unsigned int current_cluster = 0;
 	unsigned int next_cluster = 0;
+	unsigned int file_found = 0;
 	unsigned int i;
 	for (i = 0; i < diskinfo.BPB.root_entries; i++) {
 		if (i % 0x10 == 0) {
@@ -342,10 +343,11 @@ int delete_disk(const char *diskfile, const unsigned char *filename_on_disk) {
 			current_cluster = read2bytes(&rde_buffer[0x20 * (i % 0x10) + 0x1A]);
 			rde_buffer[0x20 * (i % 0x10)] = 0xe5;
 			write_sector(disk, rde_buffer, rde_sector);
+			file_found = 1;
 			break;
 		}
 	}
-	if (current_cluster == 0) {
+	if (!file_found) {
 		fputs("file not found\n", stderr);
 		fclose(disk);
 		return 1;
