@@ -174,6 +174,21 @@ int read_disk(const char *diskfile, const char *file, const unsigned char *filen
 	return 0;
 }
 
+void set_fat_sector_by_cluster(FILE* disk, const diskinfo_t *diskinfo,
+unsigned char *fat_buffer, unsigned int *fat_sector, int current_cluster) {
+	unsigned int next_fat_sector = diskinfo->fat_begin_sector + current_cluster / 0x100;
+	unsigned int i;
+	if (next_fat_sector != *fat_sector) {
+		if (*fat_sector != 0xffffffff) {
+			for (i = 0; i < diskinfo->BPB.number_of_fats; i++) {
+				write_sector(disk, fat_buffer, *fat_sector + diskinfo->BPB.sectors_per_fat * i);
+			}
+		}
+		*fat_sector = next_fat_sector;
+		read_sector(disk, fat_buffer, *fat_sector);
+	}
+}
+
 int write_disk(const char *diskfile, const char *file, const unsigned char *filename_on_disk) {
 	FILE* disk = open_disk(diskfile);
 	FILE* input;
@@ -231,7 +246,6 @@ int write_disk(const char *diskfile, const char *file, const unsigned char *file
 	write2bytes(&rde_buffer[0x20 * rde_index + 0x18], (35 << 9) | (1 << 5) | 1);
 	write2bytes(&rde_buffer[0x20 * rde_index + 0x1A], 0);
 	write4bytes(&rde_buffer[0x20 * rde_index + 0x1C], 0);
-	
 
 	input = fopen(file, "rb");
 	if (input == NULL) {
@@ -240,7 +254,6 @@ int write_disk(const char *diskfile, const char *file, const unsigned char *file
 		unsigned char fat_buffer[512];
 		unsigned char file_buffer[512];
 		unsigned int fat_sector = 0xffffffff;
-		unsigned int next_fat_sector = 0xffffffff;
 		unsigned int buffer_size;
 		unsigned int file_size = 0;
 		unsigned int current_sector = 0;
@@ -263,16 +276,7 @@ int write_disk(const char *diskfile, const char *file, const unsigned char *file
 				if (current_cluster == 0) {
 					write2bytes(&rde_buffer[0x20 * rde_index + 0x1A], next_cluster);
 				} else {
-					next_fat_sector = diskinfo.fat_begin_sector + current_cluster / 0x100;
-					if (next_fat_sector != fat_sector) {
-						if (fat_sector != 0xffffffff) {
-							for (i = 0; i < diskinfo.BPB.number_of_fats; i++) {
-								write_sector(disk, fat_buffer, fat_sector + diskinfo.BPB.sectors_per_fat * i);
-							}
-						}
-						fat_sector = next_fat_sector;
-						read_sector(disk, fat_buffer, fat_sector);
-					}
+					set_fat_sector_by_cluster(disk, &diskinfo, fat_buffer, &fat_sector, current_cluster);
 					write2bytes(&fat_buffer[2 * (current_cluster % 0x100)], next_cluster);
 				}
 				if (next_cluster == 0xffff) {
@@ -284,16 +288,7 @@ int write_disk(const char *diskfile, const char *file, const unsigned char *file
 				current_sector = diskinfo.data_begin_sector + diskinfo.BPB.sectors_per_cluster * current_cluster;
 				sector_left = diskinfo.BPB.sectors_per_cluster;
 				/* 次の次のクラスタの情報を設定する */
-				next_fat_sector = diskinfo.fat_begin_sector + current_cluster / 0x100;
-				if (next_fat_sector != fat_sector) {
-					if (fat_sector != 0xffffffff) {
-						for (i = 0; i < diskinfo.BPB.number_of_fats; i++) {
-							write_sector(disk, fat_buffer, fat_sector + diskinfo.BPB.sectors_per_fat * i);
-						}
-					}
-					fat_sector = next_fat_sector;
-					read_sector(disk, fat_buffer, fat_sector);
-				}
+				set_fat_sector_by_cluster(disk, &diskinfo, fat_buffer, &fat_sector, current_cluster);
 				next_cluster = read2bytes(&fat_buffer[2 * (current_cluster % 0x100)]);
 				if (next_cluster == 0x0001 || 0xFFF7 <= next_cluster) next_cluster = 0;
 				printf("current_cluster = 0x%08X, next_cluster = 0x%08X\n", current_cluster, next_cluster);
@@ -307,31 +302,13 @@ int write_disk(const char *diskfile, const char *file, const unsigned char *file
 		fclose(input);
 		/* クラスタチェインを閉じる */
 		if (current_cluster != 0) {
-			next_fat_sector = diskinfo.fat_begin_sector + current_cluster / 0x100;
-			if (next_fat_sector != fat_sector) {
-				if (fat_sector != 0xffffffff) {
-					for (i = 0; i < diskinfo.BPB.number_of_fats; i++) {
-						write_sector(disk, fat_buffer, fat_sector + diskinfo.BPB.sectors_per_fat * i);
-					}
-				}
-				fat_sector = next_fat_sector;
-				read_sector(disk, fat_buffer, fat_sector);
-			}
+			set_fat_sector_by_cluster(disk, &diskinfo, fat_buffer, &fat_sector, current_cluster);
 			write2bytes(&fat_buffer[2 * (current_cluster % 0x100)], 0xffff);
 		}
 		/* ディスクの残りの領域を開放する */
 		while (next_cluster != 0) {
 			current_cluster = next_cluster;
-			next_fat_sector = diskinfo.fat_begin_sector + current_cluster / 0x100;
-			if (next_fat_sector != fat_sector) {
-				if (fat_sector != 0xffffffff) {
-					for (i = 0; i < diskinfo.BPB.number_of_fats; i++) {
-						write_sector(disk, fat_buffer, fat_sector + diskinfo.BPB.sectors_per_fat * i);
-					}
-				}
-				fat_sector = next_fat_sector;
-				read_sector(disk, fat_buffer, fat_sector);
-			}
+			set_fat_sector_by_cluster(disk, &diskinfo, fat_buffer, &fat_sector, current_cluster);
 			next_cluster = read2bytes(&fat_buffer[2 * (current_cluster % 0x100)]);
 			write2bytes(&fat_buffer[2 * (current_cluster % 0x100)], 0x0000);
 		}
