@@ -369,14 +369,17 @@ int main(int argc, char *argv[]) {
 	unsigned char filename_on_disk[12];
 	int i;
 	int out_pos;
+	int dot_flag = 0;
 	if (argc != 5) {
 		fprintf(stderr, "Usage: %s disk_file operation file filename_on_disk\n", argc>0?argv[0]:"fat_io");
 		return 1;
 	}
-	for (i = 0; i < 12; i++) filename_on_disk[i] = 0x20;
+	for (i = 0; i < 11; i++) filename_on_disk[i] = 0x20;
+	filename_on_disk[11] = '\0';
 	for (i = out_pos = 0; argv[4][i] != '\0'; i++) {
-		if (out_pos <= 8 && argv[4][i] == '.') {
+		if (out_pos <= 8 && !dot_flag && argv[4][i] == '.') {
 			out_pos = 8;
+			dot_flag = 1;
 		} else {
 			if (out_pos < 11) filename_on_disk[out_pos++] = (unsigned char)argv[4][i];
 		}
