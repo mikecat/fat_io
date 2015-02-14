@@ -341,7 +341,7 @@ int main(int argc, char *argv[]) {
 	}
 	for (i = 0; i < 12; i++) filename_on_disk[i] = 0x20;
 	for (i = out_pos = 0; argv[4][i] != '\0'; i++) {
-		if (out_pos < 8 && argv[4][i] == '.') {
+		if (out_pos <= 8 && argv[4][i] == '.') {
 			out_pos = 8;
 		} else {
 			if (out_pos < 11) filename_on_disk[out_pos++] = (unsigned char)argv[4][i];
